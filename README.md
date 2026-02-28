@@ -1,8 +1,7 @@
 # ❄️ Flappy Frost
 
-A winter-themed Flappy Bird-inspired game.
-
-Guide your frosty bird through icy pipes. Simple mechanics, smooth animation, responsive design.
+A winter-themed Flappy Bird-inspired game. Guide your frosty bird through icy pipes. Simple mechanics, smooth animation, responsive design.
+Deployed Application: https://muskandhamuria.github.io/FlappyFrost/ 
 
 ## 🎮 Features
 
