@@ -1,24 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 
-interface Bird {
-  x: number;
-  y: number;
-  velocity: number;
-  rotation: number;
-}
+interface Bird { x: number; y: number; velocity: number; rotation: number; }
+interface Pipe { x: number; top: number; bottom: number; scored: boolean; }
+interface Cloud { x: number; y: number; speed: number; }
 
-interface Pipe {
-  x: number;
-  top: number;
-  bottom: number;
-  scored: boolean;
-}
-
-interface Cloud {
-  x: number;
-  y: number;
-  speed: number;
-}
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -32,8 +17,8 @@ export default function App() {
     bird: { x: 100, y: 250, velocity: 0, rotation: 0 } as Bird,
     pipes: [] as Pipe[],
     clouds: [] as Cloud[],
-    frame: 0,
     wingFlap: 0,
+    pipeTimer: 0,
   });
 
   const CANVAS_WIDTH = canvasSize.width;
@@ -45,11 +30,9 @@ export default function App() {
   const PIPE_GAP = 180;
   const PIPE_SPEED = 2.5;
 
+  // Resize handler
   useEffect(() => {
-    const handleResize = () => {
-      setCanvasSize({ width: window.innerWidth, height: window.innerHeight });
-    };
-
+    const handleResize = () => setCanvasSize({ width: window.innerWidth, height: window.innerHeight });
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -57,13 +40,11 @@ export default function App() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     // Initialize clouds
-    if (!gameState.current.clouds || gameState.current.clouds.length === 0) {
-      gameState.current.clouds = [];
+    if (!gameState.current.clouds.length) {
       for (let i = 0; i < 8; i++) {
         gameState.current.clouds.push({
           x: (CANVAS_WIDTH / 8) * i + Math.random() * 100,
@@ -74,9 +55,10 @@ export default function App() {
     }
 
     let animationId: number;
+    let lastTime = 0;
 
     const drawCloud = (cloud: Cloud) => {
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
       ctx.beginPath();
       ctx.arc(cloud.x, cloud.y, 25, 0, Math.PI * 2);
       ctx.fill();
@@ -94,462 +76,410 @@ export default function App() {
     const drawBird = (bird: Bird, wingFlap: number) => {
       ctx.save();
       ctx.translate(bird.x, bird.y);
+
+      const floatOffset = Math.sin(wingFlap * 0.15) * 2;
+      ctx.translate(0, floatOffset);
+
       ctx.rotate((bird.rotation * Math.PI) / 180);
 
-      // Penguin body - black oval
-      ctx.fillStyle = '#1a1a1a';
-      ctx.beginPath();
-      ctx.ellipse(0, 0, BIRD_SIZE / 1.8, BIRD_SIZE / 1.6, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // White belly
-      ctx.fillStyle = '#FFFFFF';
-      ctx.beginPath();
-      ctx.ellipse(2, 2, BIRD_SIZE / 2.5, BIRD_SIZE / 2, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Flippers/Wings with animated flapping
-      const wingAngle = Math.sin(wingFlap * 0.3) * 25;
-      
-      // Left flipper
       ctx.save();
-      ctx.rotate((wingAngle * Math.PI) / 180);
-      ctx.fillStyle = '#1a1a1a';
+      ctx.globalAlpha = 0.2;
+      ctx.fillStyle = "#000";
       ctx.beginPath();
-      ctx.ellipse(-10, 0, 8, 16, Math.PI / 4, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // Flipper highlight
-      ctx.fillStyle = '#333333';
-      ctx.beginPath();
-      ctx.ellipse(-11, -2, 5, 10, Math.PI / 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      
-      // Right flipper
-      ctx.save();
-      ctx.rotate((-wingAngle * Math.PI) / 180);
-      ctx.fillStyle = '#1a1a1a';
-      ctx.beginPath();
-      ctx.ellipse(10, 0, 8, 16, -Math.PI / 4, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // Flipper highlight
-      ctx.fillStyle = '#333333';
-      ctx.beginPath();
-      ctx.ellipse(11, -2, 5, 10, -Math.PI / 4, 0, Math.PI * 2);
+      ctx.ellipse(0, BIRD_SIZE / 1.2, BIRD_SIZE / 1.6, 8, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
-      // Orange beak
-      ctx.fillStyle = '#FF8C00';
+      ctx.fillStyle = "#FF8C00";
       ctx.beginPath();
-      ctx.moveTo(BIRD_SIZE / 2.5, -2);
-      ctx.lineTo(BIRD_SIZE / 2 + 10, 0);
-      ctx.lineTo(BIRD_SIZE / 2.5, 2);
+      ctx.ellipse(-8, BIRD_SIZE / 2, 6, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(8, BIRD_SIZE / 2, 6, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const bodyGradient = ctx.createRadialGradient(
+        -5, -8, 5,
+        0, 0, BIRD_SIZE
+      );
+      bodyGradient.addColorStop(0, "#2b2b2b");
+      bodyGradient.addColorStop(1, "#0f0f0f");
+
+      ctx.fillStyle = bodyGradient;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, BIRD_SIZE / 1.6, BIRD_SIZE / 1.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const bellyGradient = ctx.createRadialGradient(
+        0, 4, 2,
+        0, 4, BIRD_SIZE / 1.2
+      );
+      bellyGradient.addColorStop(0, "#ffffff");
+      bellyGradient.addColorStop(1, "#eaeaea");
+
+      ctx.fillStyle = bellyGradient;
+      ctx.beginPath();
+      ctx.ellipse(0, 4, BIRD_SIZE / 2.2, BIRD_SIZE / 1.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const wingAngle = Math.sin(wingFlap * 0.35) * 35;
+
+      const drawWing = (side: number) => {
+        ctx.save();
+        ctx.translate((BIRD_SIZE / 2) * side, 0);
+        ctx.rotate((wingAngle * side * Math.PI) / 180);
+
+        const wingGradient = ctx.createLinearGradient(0, -10, 0, 10);
+        wingGradient.addColorStop(0, "#2b2b2b");
+        wingGradient.addColorStop(1, "#111");
+
+        ctx.fillStyle = wingGradient;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 7, 16, side > 0 ? -Math.PI / 10 : Math.PI / 10, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      };
+
+      drawWing(-1);
+      drawWing(1);
+
+      ctx.fillStyle = "rgba(255,120,120,0.25)";
+      ctx.beginPath();
+      ctx.arc(-10, 0, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(10, 0, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#fff";
+      ctx.beginPath(); ctx.arc(-7, -8, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(7, -8, 6, 0, Math.PI * 2); ctx.fill();
+
+      const pupilOffsetX = Math.min(Math.max(bird.velocity * 0.2, -2), 2);
+      const pupilOffsetY = Math.min(Math.max(bird.velocity * 0.1, -2), 2);
+
+      ctx.fillStyle = "#000";
+      ctx.beginPath(); ctx.arc(-7 + pupilOffsetX, -8 + pupilOffsetY, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(7 + pupilOffsetX, -8 + pupilOffsetY, 3, 0, Math.PI * 2); ctx.fill();
+
+      ctx.fillStyle = "#fff";
+      ctx.beginPath(); ctx.arc(-9, -10, 1.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(5, -10, 1.5, 0, Math.PI * 2); ctx.fill();
+
+      const beakGradient = ctx.createLinearGradient(-5, -2, 5, 4);
+      beakGradient.addColorStop(0, "#FFA500");
+      beakGradient.addColorStop(1, "#FF7A00");
+
+      ctx.fillStyle = beakGradient;
+      ctx.beginPath();
+      ctx.moveTo(-6, -2);
+      ctx.quadraticCurveTo(0, 5, 6, -2);
       ctx.closePath();
       ctx.fill();
 
-      // Beak highlight
-      ctx.fillStyle = '#FFA500';
+      ctx.fillStyle = "rgba(255,255,255,0.5)";
       ctx.beginPath();
-      ctx.moveTo(BIRD_SIZE / 2.5, -1);
-      ctx.lineTo(BIRD_SIZE / 2 + 6, 0);
-      ctx.lineTo(BIRD_SIZE / 2.5, 1);
-      ctx.closePath();
-      ctx.fill();
-
-      // Eyes - big and round
-      ctx.fillStyle = '#FFF';
-      ctx.beginPath();
-      ctx.arc(6, -8, 6, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Eye outline
-      ctx.strokeStyle = '#1a1a1a';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      // Eye pupil
-      ctx.fillStyle = '#000';
-      ctx.beginPath();
-      ctx.arc(8, -7, 3, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Eye sparkle
-      ctx.fillStyle = '#FFF';
-      ctx.beginPath();
-      ctx.arc(9, -8, 1.2, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Second eye (slightly visible)
-      ctx.fillStyle = '#FFF';
-      ctx.beginPath();
-      ctx.arc(-2, -8, 4, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.strokeStyle = '#1a1a1a';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-
-      // Orange feet
-      ctx.fillStyle = '#FF8C00';
-      ctx.beginPath();
-      ctx.ellipse(-4, BIRD_SIZE / 2 + 2, 4, 2.5, -Math.PI / 6, 0, Math.PI * 2);
-      ctx.fill();
-      
-      ctx.beginPath();
-      ctx.ellipse(2, BIRD_SIZE / 2 + 2, 4, 2.5, Math.PI / 6, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Cheek blush (optional cute touch)
-      ctx.fillStyle = 'rgba(255, 200, 200, 0.4)';
-      ctx.beginPath();
-      ctx.ellipse(4, 1, 4, 3, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, -1, 3, 1.2, 0, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.restore();
     };
 
     const drawPipe = (pipe: Pipe) => {
-      // Ice stalactites/stalagmites - icy blue colors
-      // Top ice formation
-      const iceGradient1 = ctx.createLinearGradient(pipe.x, 0, pipe.x + PIPE_WIDTH, 0);
-      iceGradient1.addColorStop(0, '#B3E5FC');
-      iceGradient1.addColorStop(0.5, '#E1F5FE');
-      iceGradient1.addColorStop(1, '#B3E5FC');
-      ctx.fillStyle = iceGradient1;
-      ctx.fillRect(pipe.x, 0, PIPE_WIDTH, pipe.top - 30);
+      const topHeight = pipe.top - 30;
+      const bottomY = CANVAS_HEIGHT - pipe.bottom;
+      const bottomHeight = pipe.bottom - 35;
 
-      // 
-      
-      // Ice highlight
-      const capGradient1 = ctx.createLinearGradient(pipe.x - 5, 0, pipe.x + PIPE_WIDTH + 5, 0);
-      capGradient1.addColorStop(0, '#E1F5FE');
-      capGradient1.addColorStop(0.5, '#FFFFFF');
-      capGradient1.addColorStop(1, '#E1F5FE');
-      ctx.fillStyle = capGradient1;
-      ctx.fillRect(pipe.x, pipe.top - 32, PIPE_WIDTH, 5);
+      const pipeGradient = ctx.createLinearGradient(
+        pipe.x,
+        0,
+        pipe.x + PIPE_WIDTH,
+        0
+      );
+      pipeGradient.addColorStop(0, '#7EC8E3');
+      pipeGradient.addColorStop(0.25, '#BEE9F7');
+      pipeGradient.addColorStop(0.5, '#EAFBFF');
+      pipeGradient.addColorStop(0.75, '#BEE9F7');
+      pipeGradient.addColorStop(1, '#5DB7DA');
 
-      // Bottom ice formation
-      const pipeBottomY = CANVAS_HEIGHT - pipe.bottom;
-      
-     
-      // Ice highlight
-      const capGradient2 = ctx.createLinearGradient(pipe.x - 5, 0, pipe.x + PIPE_WIDTH + 5, 0);
-      capGradient2.addColorStop(0, '#E1F5FE');
-      capGradient2.addColorStop(0.5, '#FFFFFF');
-      capGradient2.addColorStop(1, '#E1F5FE');
-      ctx.fillStyle = capGradient2;
-      ctx.fillRect(pipe.x, pipeBottomY + 30, PIPE_WIDTH, 5);
+      ctx.fillStyle = pipeGradient;
 
-      // Ice body
-      const iceGradient2 = ctx.createLinearGradient(pipe.x, 0, pipe.x + PIPE_WIDTH, 0);
-      iceGradient2.addColorStop(0, '#B3E5FC');
-      iceGradient2.addColorStop(0.5, '#E1F5FE');
-      iceGradient2.addColorStop(1, '#B3E5FC');
-      ctx.fillStyle = iceGradient2;
-      ctx.fillRect(pipe.x, pipeBottomY + 35, PIPE_WIDTH, pipe.bottom - 35);
-      
-      // Add icy texture lines
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-      ctx.lineWidth = 2;
-      for (let i = 0; i < pipe.top - 30; i += 20) {
-        ctx.beginPath();
-        ctx.moveTo(pipe.x + 10, i);
-        ctx.lineTo(pipe.x + PIPE_WIDTH - 10, i + 5);
-        ctx.stroke();
+      ctx.fillRect(pipe.x, 0, PIPE_WIDTH, topHeight);
+
+      ctx.beginPath();
+      ctx.roundRect(pipe.x - 6, topHeight - 20, PIPE_WIDTH + 12, 30, 14);
+      ctx.fill();
+
+      ctx.fillRect(pipe.x, bottomY + 35, PIPE_WIDTH, bottomHeight);
+
+      ctx.beginPath();
+      ctx.roundRect(pipe.x - 6, bottomY + 25, PIPE_WIDTH + 12, 30, 14);
+      ctx.fill();
+
+      const shadowGradient = ctx.createLinearGradient(
+        pipe.x,
+        0,
+        pipe.x + PIPE_WIDTH,
+        0
+      );
+      shadowGradient.addColorStop(0, 'rgba(0,0,0,0.15)');
+      shadowGradient.addColorStop(0.5, 'rgba(0,0,0,0)');
+      shadowGradient.addColorStop(1, 'rgba(0,0,0,0.2)');
+
+      ctx.fillStyle = shadowGradient;
+      ctx.fillRect(pipe.x, 0, PIPE_WIDTH, topHeight);
+      ctx.fillRect(pipe.x, bottomY + 35, PIPE_WIDTH, bottomHeight);
+
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fillRect(pipe.x + 6, 0, 4, topHeight);
+      ctx.fillRect(pipe.x + 6, bottomY + 35, 4, bottomHeight);
+
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      for (let i = 0; i < 20; i++) {
+        const frostX = pipe.x + Math.random() * PIPE_WIDTH;
+        const frostYTop = Math.random() * topHeight;
+        const frostYBottom = bottomY + 35 + Math.random() * bottomHeight;
+
+        ctx.fillRect(frostX, frostYTop, 2, 2);
+        ctx.fillRect(frostX, frostYBottom, 2, 2);
       }
     };
 
     const drawBackground = () => {
-      // Antarctic sky gradient - cold blues
-      const skyGradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
-      skyGradient.addColorStop(0, '#B8D8E8');
-      skyGradient.addColorStop(0.5, '#D4E8F0');
-      skyGradient.addColorStop(1, '#E8F4F8');
-      ctx.fillStyle = skyGradient;
+      const sky = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+      sky.addColorStop(0, '#B8D8E8');
+      sky.addColorStop(0.5, '#D4E8F0');
+      sky.addColorStop(1, '#E8F4F8');
+      ctx.fillStyle = sky;
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-      // Draw clouds - more white and fluffy for arctic
-      gameState.current.clouds.forEach((cloud) => {
-        drawCloud(cloud);
-        cloud.x -= cloud.speed;
-        if (cloud.x < -60) {
-          cloud.x = CANVAS_WIDTH + 60;
-          cloud.y = Math.random() * 200 + 50;
-        }
+      gameState.current.clouds.forEach(c => {
+        drawCloud(c);
+        c.x -= c.speed;
+        if (c.x < -60) { c.x = CANVAS_WIDTH + 60; c.y = Math.random() * 200 + 50; }
       });
 
-      // Falling snow
-      const time = gameState.current.frame * 0.05;
-      for (let i = 0; i < 50; i++) {
-        const snowX = (i * 60 + time * 20) % CANVAS_WIDTH;
-        const snowY = (i * 30 + time * 30) % (CANVAS_HEIGHT - 80);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      // Ground
+      const groundY = CANVAS_HEIGHT - 80;
+
+      // Base ice gradient 
+      const iceGradient = ctx.createLinearGradient(0, groundY, 0, CANVAS_HEIGHT);
+      iceGradient.addColorStop(0, '#F0FBFF');  
+      iceGradient.addColorStop(0.25, '#CDEFFD');
+      iceGradient.addColorStop(0.6, '#8FD3F4');
+      iceGradient.addColorStop(1, '#4FC3F7');   
+      ctx.fillStyle = iceGradient;
+      ctx.fillRect(0, groundY, CANVAS_WIDTH, 80);
+
+      // Top glossy edge highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.fillRect(0, groundY, CANVAS_WIDTH, 4);
+
+      
+
+      // Ice shine streaks
+      for (let i = 0; i < 6; i++) {
         ctx.beginPath();
-        ctx.arc(snowX, snowY, 2 + Math.sin(time + i) * 1, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+        ctx.lineWidth = 2;
+        const x = (CANVAS_WIDTH / 6) * i + 40;
+        ctx.moveTo(x, groundY + 10);
+        ctx.lineTo(x + 60, groundY + 40);
+        ctx.stroke();
       }
 
-      // Ice/Snow ground - layered ice effect
-      const iceGradient = ctx.createLinearGradient(0, CANVAS_HEIGHT - 80, 0, CANVAS_HEIGHT);
-      iceGradient.addColorStop(0, '#E0F2F7');
-      iceGradient.addColorStop(0.3, '#B3E5FC');
-      iceGradient.addColorStop(0.7, '#81D4FA');
-      iceGradient.addColorStop(1, '#4FC3F7');
-      ctx.fillStyle = iceGradient;
-      ctx.fillRect(0, CANVAS_HEIGHT - 80, CANVAS_WIDTH, 80);
+      // Subtle cracks
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = 1.5;
 
-      // Ice chunks and cracks
-      // ctx.strokeStyle = 'rgba(100, 181, 246, 0.4)';
-      // ctx.lineWidth = 2;
-      // for (let i = 0; i < CANVAS_WIDTH; i += 60) {
-      //   const offset = (gameState.current.frame + i) % 120;
-      //   // Crack lines
-      //   ctx.beginPath();
-      //   ctx.moveTo(i - offset, CANVAS_HEIGHT - 80);
-      //   ctx.lineTo(i - offset + 15, CANVAS_HEIGHT - 60);
-      //   ctx.lineTo(i - offset + 10, CANVAS_HEIGHT - 40);
-      //   ctx.stroke();
-      // }
+      for (let i = 0; i < 8; i++) {
+        const startX = Math.random() * CANVAS_WIDTH;
+        const startY = groundY + Math.random() * 40 + 10;
 
-      // // Snow mounds on ice
-      // ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-      // for (let i = 0; i < CANVAS_WIDTH; i += 80) {
-      //   const moundX = i + Math.sin(time * 0.1 + i) * 5;
-      //   ctx.beginPath();
-      //   ctx.ellipse(moundX, CANVAS_HEIGHT - 80, 30, 15, 0, 0, Math.PI * 2);
-      //   ctx.fill();
-      // }
-
-      // Icicles hanging effect at top of ice
-      // ctx.fillStyle = 'rgba(200, 230, 255, 0.7)';
-      // for (let i = 20; i < CANVAS_WIDTH; i += 40) {
-      //   ctx.beginPath();
-      //   ctx.moveTo(i, CANVAS_HEIGHT - 80);
-      //   ctx.lineTo(i - 5, CANVAS_HEIGHT - 85);
-      //   ctx.lineTo(i + 5, CANVAS_HEIGHT - 85);
-      //   ctx.closePath();
-      //   ctx.fill();
-      // }
-
-      // Shimmer effect on ice
-      const shimmerOffset = Math.sin(time * 0.5) * 20;
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-      for (let i = 0; i < CANVAS_WIDTH; i += 100) {
         ctx.beginPath();
-        ctx.ellipse(i + shimmerOffset, CANVAS_HEIGHT - 50, 40, 10, 0, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(startX + Math.random() * 40 - 20, startY + Math.random() * 20);
+        ctx.stroke();
+      }
+
+      // Frost texture overlay
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';
+      for (let i = 0; i < 150; i++) {
+        ctx.fillRect(
+          Math.random() * CANVAS_WIDTH,
+          groundY + Math.random() * 80,
+          2,
+          2
+        );
       }
     };
 
-    const checkCollision = (bird: Bird, pipes: Pipe[]): boolean => {
-      // Ground and ceiling collision
-      if (bird.y + BIRD_SIZE / 2 > CANVAS_HEIGHT - 80 || bird.y - BIRD_SIZE / 2 < 0) {
-        return true;
-      }
-
-      // Pipe collision
+    const checkCollision = (bird: Bird, pipes: Pipe[]) => {
+      if (bird.y + BIRD_SIZE / 2 > CANVAS_HEIGHT - 80 || bird.y - BIRD_SIZE / 2 < 0) return true;
       for (const pipe of pipes) {
-        if (
-          bird.x + BIRD_SIZE / 2.5 > pipe.x &&
-          bird.x - BIRD_SIZE / 2.5 < pipe.x + PIPE_WIDTH
-        ) {
-          if (bird.y - BIRD_SIZE / 2.5 < pipe.top - 35 || bird.y + BIRD_SIZE / 2.5 > CANVAS_HEIGHT - pipe.bottom) {
+        if (bird.x + BIRD_SIZE / 2.5 > pipe.x && bird.x - BIRD_SIZE / 2.5 < pipe.x + PIPE_WIDTH) {
+          if (bird.y - BIRD_SIZE / 2.5 < pipe.top - 35 || bird.y + BIRD_SIZE / 2.5 > CANVAS_HEIGHT - pipe.bottom)
             return true;
-          }
         }
       }
-
       return false;
     };
 
-    const gameLoop = () => {
+    const gameLoop = (time: number) => {
+      const delta = (time - lastTime) / 1000;
+      lastTime = time;
+
+      const { bird, pipes } = gameState.current;
+
       if (!gameStarted || gameOver) {
         drawBackground();
-        if (!gameStarted) {
-          drawBird(gameState.current.bird, gameState.current.wingFlap);
-          gameState.current.wingFlap++;
-        }
+        if (!gameStarted) drawBird(bird, gameState.current.wingFlap);
+        gameState.current.wingFlap += 60 * delta;
         animationId = requestAnimationFrame(gameLoop);
         return;
       }
 
-      const { bird, pipes, frame } = gameState.current;
-
-      // Update bird
-      bird.velocity += GRAVITY;
-      bird.y += bird.velocity;
-      
-      // Bird rotation based on velocity
+      // Bird physics
+      bird.velocity += GRAVITY * 60 * delta;
+      bird.y += bird.velocity * 60 * delta;
       bird.rotation = Math.min(Math.max(bird.velocity * 3, -30), 90);
+      gameState.current.wingFlap += 60 * delta;
 
-      // Wing flap animation
-      gameState.current.wingFlap++;
-
-      // Generate pipes
-      if (frame % 100 === 0) {
+      // Pipes
+      gameState.current.pipeTimer += delta;
+      if (gameState.current.pipeTimer > 1.6) {
+        gameState.current.pipeTimer = 0;
         const minTop = 150;
         const maxTop = CANVAS_HEIGHT - 80 - PIPE_GAP - 100;
         const top = Math.random() * (maxTop - minTop) + minTop;
         const bottom = CANVAS_HEIGHT - 80 - top - PIPE_GAP;
-        
-        pipes.push({
-          x: CANVAS_WIDTH,
-          top,
-          bottom,
-          scored: false,
-        });
+        pipes.push({ x: CANVAS_WIDTH, top, bottom, scored: false });
       }
 
-      // Update pipes
-      for (let i = pipes.length - 1; i >= 0; i--) {
-        pipes[i].x -= PIPE_SPEED;
+      // Move pipes
 
-        // Score when passing pipe
+
+      for (let i = pipes.length - 1; i >= 0; i--) {
+        pipes[i].x -= PIPE_SPEED * 60 * delta;
         if (!pipes[i].scored && pipes[i].x + PIPE_WIDTH < bird.x) {
           pipes[i].scored = true;
-          setScore((prev) => {
-            const newScore = prev + 1;
-            setHighScore((high) => Math.max(high, newScore));
-            return newScore;
-          });
+          setScore(prev => { const newScore = prev + 1; setHighScore(h => Math.max(h, newScore)); return newScore; });
         }
-
-        // Remove off-screen pipes
-        if (pipes[i].x + PIPE_WIDTH < 0) {
-          pipes.splice(i, 1);
-        }
+        if (pipes[i].x + PIPE_WIDTH < 0) pipes.splice(i, 1);
       }
 
-      // Check collision
-      if (checkCollision(bird, pipes)) {
-        setGameOver(true);
-      }
+      if (checkCollision(bird, pipes)) setGameOver(true);
 
-      // Draw
       drawBackground();
       pipes.forEach(drawPipe);
       drawBird(bird, gameState.current.wingFlap);
 
-      // Draw score with better styling
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+      // Score display
+      ctx.shadowColor = 'rgba(0,0,0,0.5)';
       ctx.shadowBlur = 10;
-      ctx.shadowOffsetX = 3;
-      ctx.shadowOffsetY = 3;
-      
       ctx.fillStyle = '#FFF';
       ctx.font = 'bold 48px Arial';
       ctx.textAlign = 'center';
       ctx.fillText(score.toString(), CANVAS_WIDTH / 2, 70);
-      
       ctx.shadowBlur = 0;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 0;
 
-      gameState.current.frame++;
       animationId = requestAnimationFrame(gameLoop);
     };
 
-    animationId = requestAnimationFrame(gameLoop);
-
-    return () => {
-      cancelAnimationFrame(animationId);
-    };
+    requestAnimationFrame(t => { lastTime = t; animationId = requestAnimationFrame(gameLoop); });
+    return () => cancelAnimationFrame(animationId);
   }, [gameStarted, gameOver, score]);
 
   const handleJump = () => {
     if (!gameStarted) {
-      setGameStarted(true);
-      setGameOver(false);
-      setScore(0);
-      gameState.current = {
-        ...gameState.current,
-        bird: { x: 100, y: 250, velocity: 0, rotation: 0 },
-        pipes: [],
-        frame: 0,
-      };
-    } else if (!gameOver) {
-      gameState.current.bird.velocity = JUMP_STRENGTH;
-    }
+      setGameStarted(true); setGameOver(false); setScore(0);
+      gameState.current = { bird: { x:100,y:250,velocity:0,rotation:0 }, pipes:[], clouds:gameState.current.clouds, wingFlap:0, pipeTimer:0 };
+    } else if (!gameOver) gameState.current.bird.velocity = JUMP_STRENGTH;
   };
 
   const handleRestart = () => {
-    setGameStarted(false);
-    setGameOver(false);
-    setScore(0);
-    gameState.current = {
-      ...gameState.current,
-      bird: { x: 100, y: 250, velocity: 0, rotation: 0 },
-      pipes: [],
-      frame: 0,
-    };
+    setGameStarted(false); setGameOver(false); setScore(0);
+    gameState.current = { bird: { x:100,y:250,velocity:0,rotation:0 }, pipes:[], clouds:gameState.current.clouds, wingFlap:0, pipeTimer:0 };
   };
 
   useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
-        e.preventDefault();
-        handleJump();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
+    const onKey = (e: KeyboardEvent) => { if(e.code==='Space'){ e.preventDefault(); handleJump(); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, [gameStarted, gameOver]);
 
   return (
-    <div className="w-full h-screen overflow-hidden">
+    <div className="w-full h-screen overflow-hidden font-sans select-none">
       <canvas
         ref={canvasRef}
         width={CANVAS_WIDTH}
         height={CANVAS_HEIGHT}
         onClick={handleJump}
-        className="w-full h-full cursor-pointer"
+        className="w-full h-full cursor-pointer touch-none"
       />
-      
+
+      {/* Start Screen Overlay */}
       {!gameStarted && !gameOver && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-sky-200 px-12 py-8 rounded-3xl shadow-2xl text-center">
-            <h1 className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-cyan-500 to-sky-500 mb-6">
-              Flappy Frost
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-500">
+          <div className="bg-white/90 p-12 rounded-[3rem] shadow-2xl text-center max-w-lg border-4 border-white">
+            <h1 className="text-7xl font-black bg-gradient-to-b from-blue-500 to-sky-600 bg-clip-text text-transparent mb-4 tracking-tighter italic">
+              FLAPPY FROST
             </h1>
-            <div className="space-y-4">
-              <p className="text-2xl font-semibold text-gray-700">
-                Press Space to start. Click or press <span className="px-3 py-1 bg-sky-300 rounded-lg font-mono">SPACE</span> to jump!
-              </p>
-            </div>
+            <p className="text-slate-500 font-bold uppercase tracking-[0.2em] mb-8">Tap or Space to Fly</p>
+            
+            <button
+              onClick={handleJump}
+              className="group relative inline-flex items-center justify-center px-16 py-6 font-black text-white transition-all duration-200 bg-blue-600 rounded-2xl hover:bg-blue-700 active:scale-95 shadow-[0_8px_0_rgb(29,78,216)] active:shadow-none active:translate-y-[4px]"
+            >
+              <span className="text-3xl uppercase tracking-wider">Start Game</span>
+            </button>
+
             {highScore > 0 && (
-              <div className="mt-6 pt-6 border-t-2">
-                <p className="text-sm text-gray-500 uppercase tracking-wider mb-1">High Score</p>
-                <p className="text-4xl font-black text-blue-500">{highScore}</p>
+              <div className="mt-10 pt-6 border-t border-slate-200">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Current Best</p>
+                <p className="text-3xl font-black text-slate-700">{highScore}</p>
               </div>
             )}
           </div>
         </div>
       )}
 
+      {/* Game Over Overlay */}
       {gameOver && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-sky-200 px-12 py-10 rounded-3xl shadow-2xl text-center transform">
-            <h2 className="text-6xl font-black text-sky-500 mb-6">Game Over!</h2>
-            <div className="space-y-4 mb-8">
-              <div>
-                <p className="text-sm text-gray-500 uppercase tracking-wider mb-1">Your Score</p>
-                <p className="text-5xl font-black text-gray-800">{score}</p>
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-md animate-in zoom-in-95 duration-300">
+          <div className="relative bg-white p-1 rounded-[3rem] shadow-[0_20px_50px_rgba(0,0,0,0.4)]">
+            <div className="bg-slate-50 px-12 py-10 rounded-[2.8rem] text-center border-b-8 border-slate-200">
+              <h2 className="text-5xl font-black bg-gradient-to-b from-slate-800 to-slate-500 bg-clip-text text-transparent mb-8 tracking-tight">
+                GAME OVER
+              </h2>
+
+              <div className="flex flex-col gap-6 mb-10">
+                <div className="relative bg-white p-8 rounded-3xl shadow-inner border border-slate-100 min-w-[240px]">
+                  {score >= highScore && score > 0 && (
+                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-yellow-400 text-yellow-900 text-[10px] font-black px-3 py-1 rounded-full shadow-sm uppercase tracking-tighter border-2 border-white">
+                      New Best!
+                    </span>
+                  )}
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mb-1">Final Score</p>
+                  <p className="text-7xl font-black text-blue-600 drop-shadow-sm">{score}</p>
+                </div>
+
+                <div className="flex items-center justify-center gap-3">
+                  <span className="h-[2px] w-8 bg-slate-200"></span>
+                  <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">
+                    Best: <span className="text-slate-800">{highScore}</span>
+                  </p>
+                  <span className="h-[2px] w-8 bg-slate-200"></span>
+                </div>
               </div>
-              <div className="pt-4 border-t-2">
-                <p className="text-sm text-gray-500 uppercase tracking-wider mb-1">Best Score</p>
-                <p className="text-4xl font-black text-gray-800">{highScore}</p>
-              </div>
+
+              <button
+                onClick={handleRestart}
+                className="group relative inline-flex items-center justify-center px-12 py-5 font-black text-white transition-all duration-200 bg-blue-600 rounded-2xl hover:bg-blue-700 active:scale-95 shadow-[0_8px_0_rgb(29,78,216)] active:shadow-none active:translate-y-[4px]"
+              >
+                <span className="text-2xl uppercase tracking-wider">Play Again</span>
+              </button>
             </div>
-            <button
-              onClick={handleRestart}
-              className="px-10 py-4 bg-gradient-to-r from-blue-400 via-cyan-500 to-sky-500 text-white font-black text-2xl rounded-2xl shadow-lg transition-all transform hover:scale-105 active:scale-95"
-            >
-              Play Again
-            </button>
           </div>
         </div>
       )}
