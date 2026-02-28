@@ -25,7 +25,7 @@ Guide your frosty bird through icy pipes. Simple mechanics, smooth animation, re
 * Score increases each time you pass a pipe
 * Try to beat your high score!
 
-```
+---
 
 ## ⚙️ Game Mechanics
 
